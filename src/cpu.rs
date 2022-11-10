@@ -52,42 +52,42 @@ pub enum InterruptKind {
     Reset,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct InterruptLine(Option<u8>);
+// #[derive(Clone, Copy, Debug)]
+// struct InterruptLine(Option<u8>);
 
-impl InterruptLine {
-    fn new() -> Self {
-        Self(None)
-    }
+// impl InterruptLine {
+//     fn new() -> Self {
+//         Self(None)
+//     }
 
-    pub fn start(&mut self) {
-        self.0 = Some(1);
-    }
+//     pub fn start(&mut self) {
+//         self.0 = Some(1);
+//     }
 
-    fn tick(self) -> Self {
-        match self.0 {
-            Some(c) => {
-                if c > 0 {
-                    Self(Some(c - 1))
-                } else {
-                    self
-                }
-            }
-            None => self,
-        }
-    }
+//     fn tick(self) -> Self {
+//         match self.0 {
+//             Some(c) => {
+//                 if c > 0 {
+//                     Self(Some(c - 1))
+//                 } else {
+//                     self
+//                 }
+//             }
+//             None => self,
+//         }
+//     }
 
-    fn finish(self) -> Self {
-        Self(None)
-    }
+//     fn finish(self) -> Self {
+//         Self(None)
+//     }
 
-    fn is_ready(&self) -> bool {
-        match self.0 {
-            Some(c) => c == 0,
-            None => false,
-        }
-    }
-}
+//     fn is_ready(&self) -> bool {
+//         match self.0 {
+//             Some(c) => c == 0,
+//             None => false,
+//         }
+//     }
+// }
 
 pub struct Cpu<B> {
     pub a: u8,
@@ -97,8 +97,8 @@ pub struct Cpu<B> {
     pub s: u8,
     pub p: Status,
     interrupt_kind: InterruptKind,
-    irq: Cell<InterruptLine>,
-    nmi: Cell<InterruptLine>,
+    // irq: Cell<InterruptLine>,
+    // nmi: Cell<InterruptLine>,
     cycles: Cell<u64>,
     pub bus: B,
 }
@@ -117,8 +117,8 @@ where
             s: 0xfd,
             p: Status::default(),
             interrupt_kind: InterruptKind::Brk,
-            irq: Cell::new(InterruptLine::new()),
-            nmi: Cell::new(InterruptLine::new()),
+            // irq: Cell::new(InterruptLine::new()),
+            // nmi: Cell::new(InterruptLine::new()),
             cycles: Cell::new(0),
             bus,
         }
@@ -132,10 +132,9 @@ where
     /// Reads a byte from memory.
     fn read_byte(&self, address: u16) -> u8 {
         self.cycles.set(self.cycles.get() + 1);
-        let result = self.bus.read(address);
-        self.nmi.set(self.nmi.get().tick());
-        self.irq.set(self.irq.get().tick());
-        result
+        self.bus.read(address)
+        // self.nmi.set(self.nmi.get().tick());
+        // self.irq.set(self.irq.get().tick());
     }
 
     /// Reads a word from memory.
@@ -161,22 +160,22 @@ where
     /// Writes a byte to memory.
     fn write_byte(&mut self, address: u16, data: u8) {
         self.cycles.set(self.cycles.get() + 1);
-        let inter = self.bus.write(address, data);
+        self.bus.write(address, data);
 
-        self.nmi.set(self.nmi.get().tick());
-        self.irq.set(self.irq.get().tick());
+        // self.nmi.set(self.nmi.get().tick());
+        // self.irq.set(self.irq.get().tick());
 
-        match inter {
-            Some((is_irq, is_nmi)) => {
-                if is_nmi {
-                    self.nmi.get_mut().start();
-                }
-                if is_irq {
-                    self.irq.get_mut().start();
-                }
-            }
-            None => (),
-        }
+        // match inter {
+        //     Some((is_irq, is_nmi)) => {
+        //         if is_nmi {
+        //             self.nmi.get_mut().start();
+        //         }
+        //         if is_irq {
+        //             self.irq.get_mut().start();
+        //         }
+        //     }
+        //     None => (),
+        // }
     }
 
     /// Reads the byte addressed by the PC and increments the PC.
@@ -235,27 +234,27 @@ where
         // NMI alway stakes priority over IRQ, and reset has priority over
         // NMI
         // println!("{:04X}, {:?}", self.pc, self.irq);
-        let opcode = if self.nmi.get_mut().is_ready() {
-            // println!("NMI triggered at {:04X}", self.pc);
-            self.interrupt_kind = InterruptKind::Nmi;
-            self.nmi.set(self.nmi.get().finish());
-            self.read_byte(self.pc);
-            self.read_byte(self.pc);
+        // let opcode = if self.nmi.get_mut().is_ready() {
+        //     // println!("NMI triggered at {:04X}", self.pc);
+        //     self.interrupt_kind = InterruptKind::Nmi;
+        //     self.nmi.set(self.nmi.get().finish());
+        //     self.read_byte(self.pc);
+        //     self.read_byte(self.pc);
 
-            0x00
-        } else if self.irq.get_mut().is_ready() && !self.p.contains(Status::I)
-        {
-            // println!("IRQ triggered at {:04X}", self.pc);
-            self.interrupt_kind = InterruptKind::Irq;
-            self.irq.set(self.irq.get().finish());
-            self.read_byte(self.pc);
-            self.read_byte(self.pc);
-            0x00
-        } else {
-            self.consume_byte()
-        };
+        //     0x00
+        // } else if self.irq.get_mut().is_ready() && !self.p.contains(Status::I)
+        // {
+        //     // println!("IRQ triggered at {:04X}", self.pc);
+        //     self.interrupt_kind = InterruptKind::Irq;
+        //     self.irq.set(self.irq.get().finish());
+        //     self.read_byte(self.pc);
+        //     self.read_byte(self.pc);
+        //     0x00
+        // } else {
+        //     self.consume_byte()
+        // };
 
-        // let opcode = self.consume_byte();
+        let opcode = self.consume_byte();
 
         match opcode {
             0x69 => self.adc::<IMMEDIATE>(),
