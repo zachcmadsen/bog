@@ -1,8 +1,6 @@
-use core::cell::Cell;
-
 use bitflags::bitflags;
 
-use crate::bus::Bus;
+use crate::{Bus, Pins};
 
 // Vectors
 const NMI_VECTOR: u16 = 0xfffa;
@@ -97,10 +95,9 @@ pub struct Cpu<B> {
     pub s: u8,
     pub p: Status,
     interrupt_kind: InterruptKind,
-    // irq: Cell<InterruptLine>,
-    // nmi: Cell<InterruptLine>,
-    cycles: Cell<u64>,
+    cycles: u64,
     pub bus: B,
+    pub pins: Pins,
 }
 
 impl<B> Cpu<B>
@@ -119,26 +116,24 @@ where
             interrupt_kind: InterruptKind::Brk,
             // irq: Cell::new(InterruptLine::new()),
             // nmi: Cell::new(InterruptLine::new()),
-            cycles: Cell::new(0),
+            cycles: 0,
             bus,
+            pins: Pins::default(),
         }
     }
 
-    /// Returns the current cycle count.
-    pub fn cycles(&self) -> u64 {
-        self.cycles.get()
-    }
-
     /// Reads a byte from memory.
-    fn read_byte(&self, address: u16) -> u8 {
-        self.cycles.set(self.cycles.get() + 1);
-        self.bus.read(address)
+    fn read_byte(&mut self, address: u16) -> u8 {
+        self.pins.address = address;
+        self.pins.rw = true;
+        self.bus.tick(&mut self.pins);
+        self.pins.data
         // self.nmi.set(self.nmi.get().tick());
         // self.irq.set(self.irq.get().tick());
     }
 
     /// Reads a word from memory.
-    fn read_word(&self, address: u16) -> u16 {
+    fn read_word(&mut self, address: u16) -> u16 {
         let low = self.read_byte(address);
         let high = self.read_byte(address + 1);
         (high as u16) << 8 | low as u16
@@ -149,7 +144,7 @@ where
     /// There's a hardware bug where the low byte wraps without incrementing
     /// the high byte, i.e., it wraps around in the same page. This behavior
     /// only affects indirect addressing modes.
-    fn read_word_bugged(&self, address: u16) -> u16 {
+    fn read_word_bugged(&mut self, address: u16) -> u16 {
         let low = self.read_byte(address);
         let high = self.read_byte(
             (address & 0xff00) | (address as u8).wrapping_add(1) as u16,
@@ -159,8 +154,12 @@ where
 
     /// Writes a byte to memory.
     fn write_byte(&mut self, address: u16, data: u8) {
-        self.cycles.set(self.cycles.get() + 1);
-        self.bus.write(address, data);
+        self.cycles += 1;
+
+        self.pins.address = address;
+        self.pins.data = data;
+        self.pins.rw = false;
+        self.bus.tick(&mut self.pins);
 
         // self.nmi.set(self.nmi.get().tick());
         // self.irq.set(self.irq.get().tick());
@@ -193,7 +192,7 @@ where
     }
 
     /// Returns the byte at the top of the stack.
-    fn peek(&self) -> u8 {
+    fn peek(&mut self) -> u8 {
         self.read_byte(STACK_BASE + self.s.wrapping_add(1) as u16)
     }
 
@@ -214,7 +213,7 @@ where
         // There are things happening on the address and data bus in the
         // first five cycles, but I don't think they matter. Incrementing the
         // cycle count seems to be sufficient.
-        self.cycles.set(5);
+        self.cycles += 5;
 
         // Turn on the interrupt disable bit? Yes
 

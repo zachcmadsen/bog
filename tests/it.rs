@@ -1,4 +1,4 @@
-use bog::{bus::Bus, cpu::Cpu};
+use bog::{Bus, Cpu, Pins};
 
 const FUNCTIONAL_TEST_ROM: &[u8] =
     include_bytes!("../roms/6502_functional_test.bin");
@@ -13,12 +13,11 @@ struct TestBus {
 }
 
 impl Bus for TestBus {
-    fn read(&self, address: u16) -> u8 {
-        self.memory[address as usize]
-    }
-
-    fn write(&mut self, address: u16, data: u8) {
-        self.memory[address as usize] = data;
+    fn tick(&mut self, pins: &mut Pins) {
+        match pins.rw {
+            true => pins.data = self.memory[pins.address as usize],
+            false => self.memory[pins.address as usize] = pins.data,
+        }
     }
 }
 
