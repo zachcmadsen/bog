@@ -8,6 +8,8 @@ pub struct Pins {
     pub address: u16,
     pub data: u8,
     pub rw: bool,
+    pub irq: bool,
+    pub nmi: bool,
 }
 
 impl Default for Pins {
@@ -16,6 +18,8 @@ impl Default for Pins {
             address: 0,
             data: 0,
             rw: true,
+            irq: false,
+            nmi: false,
         }
     }
 }

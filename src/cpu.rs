@@ -2,12 +2,10 @@ use bitflags::bitflags;
 
 use crate::{Bus, Pins};
 
-// Vectors
 const NMI_VECTOR: u16 = 0xfffa;
 const RESET_VECTOR: u16 = 0xfffc;
 const IRQ_VECTOR: u16 = 0xfffe;
 
-// Addressing Modes
 const ABSOLUTE: u8 = 0;
 const ABSOLUTE_X: u8 = 1;
 const ABSOLUTE_Y: u8 = 2;
@@ -20,6 +18,8 @@ const INDIRECT_INDEXED: u8 = 8;
 const ZERO_PAGE: u8 = 9;
 const ZERO_PAGE_X: u8 = 10;
 const ZERO_PAGE_Y: u8 = 11;
+
+const BRK_OPCODE: u8 = 0x00;
 
 const STACK_BASE: u16 = 0x0100;
 
@@ -43,49 +43,12 @@ impl Default for Status {
     }
 }
 
-pub enum InterruptKind {
+pub enum Interrupt {
     Brk,
     Irq,
     Nmi,
     Reset,
 }
-
-// #[derive(Clone, Copy, Debug)]
-// struct InterruptLine(Option<u8>);
-
-// impl InterruptLine {
-//     fn new() -> Self {
-//         Self(None)
-//     }
-
-//     pub fn start(&mut self) {
-//         self.0 = Some(1);
-//     }
-
-//     fn tick(self) -> Self {
-//         match self.0 {
-//             Some(c) => {
-//                 if c > 0 {
-//                     Self(Some(c - 1))
-//                 } else {
-//                     self
-//                 }
-//             }
-//             None => self,
-//         }
-//     }
-
-//     fn finish(self) -> Self {
-//         Self(None)
-//     }
-
-//     fn is_ready(&self) -> bool {
-//         match self.0 {
-//             Some(c) => c == 0,
-//             None => false,
-//         }
-//     }
-// }
 
 pub struct Cpu<B> {
     pub a: u8,
@@ -94,10 +57,17 @@ pub struct Cpu<B> {
     pub pc: u16,
     pub s: u8,
     pub p: Status,
-    interrupt_kind: InterruptKind,
-    cycles: u64,
-    pub bus: B,
+
     pub pins: Pins,
+
+    interrupt: Interrupt,
+    pub prev_irq: bool,
+    pub irq: bool,
+    pub prev_nmi: bool,
+    pub prev_need_nmi: bool,
+    pub need_nmi: bool,
+
+    bus: B,
 }
 
 impl<B> Cpu<B>
@@ -113,12 +83,14 @@ where
             pc: 0,
             s: 0xfd,
             p: Status::default(),
-            interrupt_kind: InterruptKind::Brk,
-            // irq: Cell::new(InterruptLine::new()),
-            // nmi: Cell::new(InterruptLine::new()),
-            cycles: 0,
-            bus,
             pins: Pins::default(),
+            interrupt: Interrupt::Brk,
+            prev_irq: false,
+            irq: false,
+            prev_nmi: false,
+            prev_need_nmi: false,
+            need_nmi: false,
+            bus,
         }
     }
 
@@ -127,9 +99,10 @@ where
         self.pins.address = address;
         self.pins.rw = true;
         self.bus.tick(&mut self.pins);
+
+        self.poll_interrupts();
+
         self.pins.data
-        // self.nmi.set(self.nmi.get().tick());
-        // self.irq.set(self.irq.get().tick());
     }
 
     /// Reads a word from memory.
@@ -154,27 +127,12 @@ where
 
     /// Writes a byte to memory.
     fn write_byte(&mut self, address: u16, data: u8) {
-        self.cycles += 1;
-
         self.pins.address = address;
         self.pins.data = data;
         self.pins.rw = false;
         self.bus.tick(&mut self.pins);
 
-        // self.nmi.set(self.nmi.get().tick());
-        // self.irq.set(self.irq.get().tick());
-
-        // match inter {
-        //     Some((is_irq, is_nmi)) => {
-        //         if is_nmi {
-        //             self.nmi.get_mut().start();
-        //         }
-        //         if is_irq {
-        //             self.irq.get_mut().start();
-        //         }
-        //     }
-        //     None => (),
-        // }
+        self.poll_interrupts();
     }
 
     /// Reads the byte addressed by the PC and increments the PC.
@@ -208,52 +166,40 @@ where
         self.read_byte(STACK_BASE + self.s as u16)
     }
 
-    /// Runs the startup sequence.
-    pub fn reset(&mut self) {
-        // There are things happening on the address and data bus in the
-        // first five cycles, but I don't think they matter. Incrementing the
-        // cycle count seems to be sufficient.
-        self.cycles += 5;
+    fn poll_interrupts(&mut self) {
+        // We need to track the previous status of the interrupt pins because
+        // their statuses at the end of the second-to-last cycle determine if
+        // the next instruction will be an interrupt.
+        self.prev_irq = self.irq;
+        self.irq = self.pins.irq && !self.p.contains(Status::I);
 
-        // Turn on the interrupt disable bit? Yes
+        self.prev_need_nmi = self.need_nmi;
 
-        // TODO: The CPU should be in read-only state during the reset
-        // sequence. Any writes during the reset sequence should become reads.
-        self.pc = self.read_word(RESET_VECTOR);
+        // An NMI is raised if the NMI pin goes from inactive during one cycle
+        // to active during the next. The NMI stays "raised" until it's
+        // handled.
+        if !self.prev_nmi && self.pins.nmi {
+            self.need_nmi = true;
+        }
+        self.prev_nmi = self.pins.nmi;
     }
 
     /// Executes the next instruction.
     pub fn step(&mut self) {
-        // TODO: Check for interrupts. Interrupts are (always?) handled before
-        // an instruction starts. To process an interrupt before the next
-        // instruction, then it must occur before the last cycle of the current
-        // instruction (there are exceptions to this, but it's fine for now).
-        // I'll need to add some kind of timer to see if an interrupt needs to
-        // be handled.
-        // NMI alway stakes priority over IRQ, and reset has priority over
-        // NMI
-        // println!("{:04X}, {:?}", self.pc, self.irq);
-        // let opcode = if self.nmi.get_mut().is_ready() {
-        //     // println!("NMI triggered at {:04X}", self.pc);
-        //     self.interrupt_kind = InterruptKind::Nmi;
-        //     self.nmi.set(self.nmi.get().finish());
-        //     self.read_byte(self.pc);
-        //     self.read_byte(self.pc);
+        // TODO: Reset should be handled the same way as IRQ and NMI.
+        let opcode = if self.prev_need_nmi || self.prev_irq {
+            if self.prev_need_nmi {
+                self.need_nmi = false;
+                self.interrupt = Interrupt::Nmi
+            } else {
+                self.interrupt = Interrupt::Irq
+            };
 
-        //     0x00
-        // } else if self.irq.get_mut().is_ready() && !self.p.contains(Status::I)
-        // {
-        //     // println!("IRQ triggered at {:04X}", self.pc);
-        //     self.interrupt_kind = InterruptKind::Irq;
-        //     self.irq.set(self.irq.get().finish());
-        //     self.read_byte(self.pc);
-        //     self.read_byte(self.pc);
-        //     0x00
-        // } else {
-        //     self.consume_byte()
-        // };
-
-        let opcode = self.consume_byte();
+            self.read_byte(self.pc);
+            BRK_OPCODE
+        } else {
+            self.consume_byte()
+        };
 
         match opcode {
             0x69 => self.adc::<IMMEDIATE>(),
@@ -555,18 +501,6 @@ where
         };
     }
 
-    // fn interrupt(&mut self) {
-    //     self.consume_next_byte();
-    //     self.consume_next_byte();
-
-    //     self.push((self.pc >> 8) as u8);
-    //     self.push(self.pc as u8);
-    //     self.push(self.p.bits());
-
-    //     self.pc = self.read_word(INTERRUPT_REQUEST_VECTOR);
-    //     self.p.set(Flag::I, true);
-    // }
-
     fn effective_address<const M: u8, const W: bool>(&mut self) -> u16 {
         match M {
             ABSOLUTE => self.consume_word(),
@@ -822,34 +756,31 @@ where
     }
 
     fn brk(&mut self) {
-        // TODO: Should this consume?
         self.read_byte(self.pc);
-
-        if !matches!(
-            self.interrupt_kind,
-            InterruptKind::Irq | InterruptKind::Nmi
-        ) {
+        if matches!(self.interrupt, Interrupt::Brk) {
             self.pc += 1;
         }
 
         self.push((self.pc >> 8) as u8);
         self.push(self.pc as u8);
-        self.push(
-            (if matches!(self.interrupt_kind, InterruptKind::Brk) {
-                self.p | Status::B
-            } else {
-                self.p
-            })
-            .bits(),
-        );
 
-        self.pc = self.read_word(match self.interrupt_kind {
-            InterruptKind::Brk | InterruptKind::Irq => IRQ_VECTOR,
-            InterruptKind::Nmi => NMI_VECTOR,
-            InterruptKind::Reset => RESET_VECTOR,
-        });
-        self.interrupt_kind = InterruptKind::Brk;
+        let p = if matches!(self.interrupt, Interrupt::Brk) {
+            self.p | Status::B
+        } else {
+            self.p
+        };
+        self.push(p.bits());
+
         self.p.insert(Status::I);
+        let vector = match self.interrupt {
+            Interrupt::Brk | Interrupt::Irq => IRQ_VECTOR,
+            Interrupt::Nmi => NMI_VECTOR,
+            Interrupt::Reset => RESET_VECTOR,
+        };
+        self.pc = self.read_word(vector);
+
+        // Default to BRK interrupts.
+        self.interrupt = Interrupt::Brk;
     }
 
     fn bvc(&mut self) {
