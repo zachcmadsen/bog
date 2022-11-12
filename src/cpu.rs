@@ -43,7 +43,8 @@ impl Default for Status {
     }
 }
 
-pub enum Interrupt {
+#[derive(PartialEq)]
+enum Interrupt {
     Brk,
     Irq,
     Nmi,
@@ -66,6 +67,7 @@ pub struct Cpu<B> {
     pub prev_nmi: bool,
     pub prev_need_nmi: bool,
     pub need_nmi: bool,
+    pub rst: bool,
 
     bus: B,
 }
@@ -90,6 +92,7 @@ where
             prev_nmi: false,
             prev_need_nmi: false,
             need_nmi: false,
+            rst: false,
             bus,
         }
     }
@@ -182,13 +185,19 @@ where
             self.need_nmi = true;
         }
         self.prev_nmi = self.pins.nmi;
+
+        if !self.rst && self.pins.rst {
+            self.rst = self.pins.rst;
+        }
     }
 
     /// Executes the next instruction.
     pub fn step(&mut self) {
-        // TODO: Reset should be handled the same way as IRQ and NMI.
-        let opcode = if self.prev_need_nmi || self.prev_irq {
-            if self.prev_need_nmi {
+        let opcode = if self.rst || self.prev_need_nmi || self.prev_irq {
+            if self.rst {
+                self.rst = false;
+                self.interrupt = Interrupt::Reset;
+            } else if self.prev_need_nmi {
                 self.need_nmi = false;
                 self.interrupt = Interrupt::Nmi
             } else {
@@ -757,20 +766,29 @@ where
 
     fn brk(&mut self) {
         self.read_byte(self.pc);
-        if matches!(self.interrupt, Interrupt::Brk) {
+        if self.interrupt == Interrupt::Brk {
             self.pc += 1;
         }
 
-        self.push((self.pc >> 8) as u8);
-        self.push(self.pc as u8);
-
-        let p = if matches!(self.interrupt, Interrupt::Brk) {
-            self.p | Status::B
+        if self.interrupt == Interrupt::Reset {
+            self.peek();
+            self.s = self.s.wrapping_sub(1);
+            self.peek();
+            self.s = self.s.wrapping_sub(1);
+            self.peek();
+            self.s = self.s.wrapping_sub(1);
         } else {
-            self.p
-        };
-        self.push(p.bits());
+            self.push((self.pc >> 8) as u8);
+            self.push(self.pc as u8);
+            let p = if self.interrupt == Interrupt::Brk {
+                self.p | Status::B
+            } else {
+                self.p
+            };
+            self.push(p.bits());
+        }
 
+        // TODO: Implement interrupt hijacking.
         self.p.insert(Status::I);
         let vector = match self.interrupt {
             Interrupt::Brk | Interrupt::Irq => IRQ_VECTOR,

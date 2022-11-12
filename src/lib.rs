@@ -10,6 +10,7 @@ pub struct Pins {
     pub rw: bool,
     pub irq: bool,
     pub nmi: bool,
+    pub rst: bool,
 }
 
 impl Default for Pins {
@@ -20,6 +21,7 @@ impl Default for Pins {
             rw: true,
             irq: false,
             nmi: false,
+            rst: false,
         }
     }
 }
