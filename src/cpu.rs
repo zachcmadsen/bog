@@ -58,16 +58,15 @@ pub struct Cpu<B> {
     pub pc: u16,
     pub s: u8,
     pub p: Status,
-
     pub pins: Pins,
 
     interrupt: Interrupt,
-    pub prev_irq: bool,
-    pub irq: bool,
-    pub prev_nmi: bool,
-    pub prev_need_nmi: bool,
-    pub need_nmi: bool,
-    pub rst: bool,
+    prev_irq: bool,
+    irq: bool,
+    prev_nmi: bool,
+    prev_need_nmi: bool,
+    need_nmi: bool,
+    rst: bool,
 
     bus: B,
 }
