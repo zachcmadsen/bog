@@ -24,6 +24,7 @@ const BRK_OPCODE: u8 = 0x00;
 const STACK_BASE: u16 = 0x0100;
 
 bitflags! {
+    /// The status register bitflags.
     #[derive(Clone, Copy)]
     pub struct Status: u8 {
         const C = 1;
@@ -51,6 +52,7 @@ enum Interrupt {
     Reset,
 }
 
+/// A MOS 6502 CPU.
 pub struct Cpu<B> {
     pub a: u8,
     pub x: u8,
@@ -75,7 +77,7 @@ impl<B> Cpu<B>
 where
     B: Bus,
 {
-    /// Constructs a new `Cpu`.
+    /// Constructs a new `Cpu` in a power-up state.
     pub fn new(bus: B) -> Cpu<B> {
         Cpu {
             a: 0,
@@ -93,100 +95,6 @@ where
             need_nmi: false,
             rst: false,
             bus,
-        }
-    }
-
-    /// Reads a byte from memory.
-    fn read_byte(&mut self, address: u16) -> u8 {
-        self.pins.address = address;
-        self.pins.rw = true;
-        self.bus.tick(&mut self.pins);
-
-        self.poll_interrupts();
-
-        self.pins.data
-    }
-
-    /// Reads a word from memory.
-    fn read_word(&mut self, address: u16) -> u16 {
-        let low = self.read_byte(address);
-        let high = self.read_byte(address + 1);
-        (high as u16) << 8 | low as u16
-    }
-
-    /// Reads a word from memory without handling page boundary crosses.
-    ///
-    /// There's a hardware bug where the low byte wraps without incrementing
-    /// the high byte, i.e., it wraps around in the same page. This behavior
-    /// only affects indirect addressing modes.
-    fn read_word_bugged(&mut self, address: u16) -> u16 {
-        let low = self.read_byte(address);
-        let high = self.read_byte(
-            (address & 0xff00) | (address as u8).wrapping_add(1) as u16,
-        );
-        (high as u16) << 8 | low as u16
-    }
-
-    /// Writes a byte to memory.
-    fn write_byte(&mut self, address: u16, data: u8) {
-        self.pins.address = address;
-        self.pins.data = data;
-        self.pins.rw = false;
-        self.bus.tick(&mut self.pins);
-
-        self.poll_interrupts();
-    }
-
-    /// Reads the byte addressed by the PC and increments the PC.
-    fn consume_byte(&mut self) -> u8 {
-        let data = self.read_byte(self.pc);
-        self.pc = self.pc.wrapping_add(1);
-        data
-    }
-
-    /// Reads the word addressed by the PC and increments the PC by two.
-    fn consume_word(&mut self) -> u16 {
-        let data = self.read_word(self.pc);
-        self.pc = self.pc.wrapping_add(2);
-        data
-    }
-
-    /// Returns the byte at the top of the stack.
-    fn peek(&mut self) -> u8 {
-        self.read_byte(STACK_BASE + self.s.wrapping_add(1) as u16)
-    }
-
-    /// Pushes a byte onto the stack.
-    fn push(&mut self, data: u8) {
-        self.write_byte(STACK_BASE + self.s as u16, data);
-        self.s = self.s.wrapping_sub(1);
-    }
-
-    /// Pops a byte off the top of the stack.
-    fn pop(&mut self) -> u8 {
-        self.s = self.s.wrapping_add(1);
-        self.read_byte(STACK_BASE + self.s as u16)
-    }
-
-    fn poll_interrupts(&mut self) {
-        // We need to track the previous status of the interrupt pins because
-        // their statuses at the end of the second-to-last cycle determine if
-        // the next instruction will be an interrupt.
-        self.prev_irq = self.irq;
-        self.irq = self.pins.irq && !self.p.contains(Status::I);
-
-        self.prev_need_nmi = self.need_nmi;
-
-        // An NMI is raised if the NMI pin goes from inactive during one cycle
-        // to active during the next. The NMI stays "raised" until it's
-        // handled.
-        if !self.prev_nmi && self.pins.nmi {
-            self.need_nmi = true;
-        }
-        self.prev_nmi = self.pins.nmi;
-
-        if !self.rst && self.pins.rst {
-            self.rst = self.pins.rst;
         }
     }
 
@@ -505,82 +413,90 @@ where
 
             0x98 => self.tya(),
 
-            _ => unreachable!("unexpected opcode {}", opcode),
+            _ => unreachable!("unsupported opcode: 0x{:02X}", opcode),
         };
     }
 
-    fn effective_address<const M: u8, const W: bool>(&mut self) -> u16 {
-        match M {
-            ABSOLUTE => self.consume_word(),
-            ABSOLUTE_X | ABSOLUTE_Y => {
-                let index = if M == ABSOLUTE_X { self.x } else { self.y };
+    fn read_byte(&mut self, address: u16) -> u8 {
+        self.pins.address = address;
+        self.pins.rw = true;
+        self.bus.tick(&mut self.pins);
 
-                let (low, did_cross_page) =
-                    self.consume_byte().overflowing_add(index);
-                let high = self.consume_byte();
+        self.poll_interrupts();
 
-                let effective_address =
-                    (high.wrapping_add(did_cross_page as u8) as u16) << 8
-                        | (low as u16);
+        self.pins.data
+    }
 
-                // If the effective address is invalid, i.e., it crosses a page
-                // boundary, then it takes an extra cycle to fix it. For write
-                // instructions, the processor always reads from the effective
-                // address (that is, it always takes an extra cycle) since it
-                // can't undo a write to an invalid address.
-                if did_cross_page || W {
-                    self.read_byte(effective_address);
-                }
+    fn read_word(&mut self, address: u16) -> u16 {
+        let low = self.read_byte(address);
+        let high = self.read_byte(address + 1);
+        (high as u16) << 8 | low as u16
+    }
 
-                effective_address
-            }
-            IMMEDIATE => {
-                let effective_address = self.pc;
-                self.pc = self.pc.wrapping_add(1);
-                effective_address
-            }
-            INDIRECT => {
-                let ptr = self.consume_word();
-                self.read_word_bugged(ptr)
-            }
-            INDEXED_INDIRECT => {
-                let ptr = self.consume_byte();
-                self.read_byte(ptr as u16);
-                self.read_word_bugged(ptr.wrapping_add(self.x) as u16)
-            }
-            INDIRECT_INDEXED => {
-                let ptr = self.consume_byte();
+    fn read_word_bugged(&mut self, address: u16) -> u16 {
+        let low = self.read_byte(address);
+        // Indirect addressing modes are affected by a hardware bug where reads
+        // that would cross a page instead wrap around in the same page.
+        let high = self.read_byte(
+            (address & 0xff00) | (address as u8).wrapping_add(1) as u16,
+        );
+        (high as u16) << 8 | low as u16
+    }
 
-                let (low, did_cross_page) =
-                    self.read_byte(ptr as u16).overflowing_add(self.y);
-                let high = self.read_byte(ptr.wrapping_add(1) as u16);
+    fn write_byte(&mut self, address: u16, data: u8) {
+        self.pins.address = address;
+        self.pins.data = data;
+        self.pins.rw = false;
+        self.bus.tick(&mut self.pins);
 
-                let effective_address =
-                    (high.wrapping_add(did_cross_page as u8) as u16) << 8
-                        | (low as u16);
+        self.poll_interrupts();
+    }
 
-                // Write instructions always read from the effective address.
-                // See the AbsoluteX/AbsoluteY branch for details.
-                if did_cross_page || W {
-                    self.read_byte(effective_address);
-                }
+    fn consume_byte(&mut self) -> u8 {
+        let data = self.read_byte(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        data
+    }
 
-                effective_address
-            }
-            ZERO_PAGE => self.consume_byte() as u16,
-            ZERO_PAGE_X | ZERO_PAGE_Y => {
-                let index = if M == ZERO_PAGE_X { self.x } else { self.y };
+    fn consume_word(&mut self) -> u16 {
+        let data = self.read_word(self.pc);
+        self.pc = self.pc.wrapping_add(2);
+        data
+    }
 
-                let address = self.consume_byte();
-                self.read_byte(address as u16);
+    fn peek(&mut self) -> u8 {
+        self.read_byte(STACK_BASE + self.s.wrapping_add(1) as u16)
+    }
 
-                address.wrapping_add(index) as u16
-            }
-            // TODO: Convert M to a string for the panic message
-            _ => unreachable!(
-                "can't compute an effective address with addressing mode {:?}",
-                M
-            ),
+    fn push(&mut self, data: u8) {
+        self.write_byte(STACK_BASE + self.s as u16, data);
+        self.s = self.s.wrapping_sub(1);
+    }
+
+    fn pop(&mut self) -> u8 {
+        self.s = self.s.wrapping_add(1);
+        self.read_byte(STACK_BASE + self.s as u16)
+    }
+
+    fn poll_interrupts(&mut self) {
+        // We need to track the previous status of the interrupt pins because
+        // their statuses at the end of the second-to-last cycle determine if
+        // the next instruction will be an interrupt.
+        self.prev_irq = self.irq;
+        self.irq = self.pins.irq && !self.p.contains(Status::I);
+
+        self.prev_need_nmi = self.need_nmi;
+
+        // An NMI is raised if the NMI pin goes from inactive during one cycle
+        // to active during the next. The NMI stays "raised" until it's
+        // handled.
+        if !self.prev_nmi && self.pins.nmi {
+            self.need_nmi = true;
+        }
+        self.prev_nmi = self.pins.nmi;
+
+        if !self.rst && self.pins.rst {
+            self.rst = self.pins.rst;
         }
     }
 }
@@ -625,7 +541,6 @@ where
             self.read_byte(self.pc);
 
             let old_pc = self.pc;
-            // TODO: Use overflowing add here?
             self.pc = self.pc.wrapping_add(offset);
 
             if old_pc & 0xff00 != self.pc & 0xff00 {
@@ -634,7 +549,6 @@ where
         }
     }
 
-    /// Subtracts `value` from `register` and updates flags based on the result.
     fn compare(&mut self, register: u8, value: u8) {
         let result = register.wrapping_sub(value);
 
@@ -700,6 +614,78 @@ where
 
                 result
             }
+        }
+    }
+
+    fn effective_address<const M: u8, const W: bool>(&mut self) -> u16 {
+        match M {
+            ABSOLUTE => self.consume_word(),
+            ABSOLUTE_X | ABSOLUTE_Y => {
+                let index = if M == ABSOLUTE_X { self.x } else { self.y };
+
+                let (low, page_cross) =
+                    self.consume_byte().overflowing_add(index);
+                let high = self.consume_byte();
+
+                let effective_address =
+                    (high.wrapping_add(page_cross as u8) as u16) << 8
+                        | (low as u16);
+
+                // If the effective address is invalid, i.e., it crossed a
+                // page, then it takes an extra read cycle to fix it. Write
+                // instructions always have the extra read since they can't
+                // undo a write to an invalid address.
+                if page_cross || W {
+                    self.read_byte(effective_address);
+                }
+
+                effective_address
+            }
+            IMMEDIATE => {
+                let effective_address = self.pc;
+                self.pc = self.pc.wrapping_add(1);
+                effective_address
+            }
+            INDIRECT => {
+                let ptr = self.consume_word();
+                self.read_word_bugged(ptr)
+            }
+            INDEXED_INDIRECT => {
+                let ptr = self.consume_byte();
+                self.read_byte(ptr as u16);
+                self.read_word_bugged(ptr.wrapping_add(self.x) as u16)
+            }
+            INDIRECT_INDEXED => {
+                let ptr = self.consume_byte();
+
+                let (low, did_cross_page) =
+                    self.read_byte(ptr as u16).overflowing_add(self.y);
+                let high = self.read_byte(ptr.wrapping_add(1) as u16);
+
+                let effective_address =
+                    (high.wrapping_add(did_cross_page as u8) as u16) << 8
+                        | (low as u16);
+
+                // If the effective address is invalid, i.e., it crossed a
+                // page, then it takes an extra read cycle to fix it. Write
+                // instructions always have the extra read since they can't
+                // undo a write to an invalid address.
+                if did_cross_page || W {
+                    self.read_byte(effective_address);
+                }
+
+                effective_address
+            }
+            ZERO_PAGE => self.consume_byte() as u16,
+            ZERO_PAGE_X | ZERO_PAGE_Y => {
+                let index = if M == ZERO_PAGE_X { self.x } else { self.y };
+
+                let address = self.consume_byte();
+                self.read_byte(address as u16);
+
+                address.wrapping_add(index) as u16
+            }
+            _ => unreachable!("unexpected addressing mode: {}", M),
         }
     }
 }
@@ -1059,8 +1045,8 @@ where
     fn sbc<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
 
-        // If we reformulate the subtraction as addition, then we can use the
-        // same logic for ADC and SBC. All we need to do is make our value from
+        // If we reformulate subtraction as addition, then we can use the same
+        // logic for ADC and SBC. All we need to do is make our value from
         // memory negative, i.e., invert it.
         let value = self.read_byte(effective_address) ^ 0xff;
         self.add(value);
