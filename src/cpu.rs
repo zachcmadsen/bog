@@ -774,6 +774,7 @@ where
         }
 
         // TODO: Implement interrupt hijacking.
+        // TODO: Should NMI not set the I flag?
         self.p.insert(Status::I);
         let vector = match self.interrupt {
             Interrupt::Brk | Interrupt::Irq => IRQ_VECTOR,
