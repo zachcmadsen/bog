@@ -61,6 +61,7 @@ pub struct Cpu<B> {
     pub s: u8,
     pub p: Status,
     pub pins: Pins,
+    pub cycles: u64,
 
     interrupt: Interrupt,
     prev_irq: bool,
@@ -87,6 +88,7 @@ where
             s: 0xfd,
             p: Status::default(),
             pins: Pins::default(),
+            cycles: 0,
             interrupt: Interrupt::Brk,
             prev_irq: false,
             irq: false,
@@ -96,6 +98,11 @@ where
             rst: false,
             bus,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.rst = true;
+        self.step();
     }
 
     /// Executes the next instruction.
@@ -418,6 +425,8 @@ where
     }
 
     fn read_byte(&mut self, address: u16) -> u8 {
+        self.cycles += 1;
+
         self.pins.address = address;
         self.pins.rw = true;
         self.bus.tick(&mut self.pins);
@@ -444,6 +453,8 @@ where
     }
 
     fn write_byte(&mut self, address: u16, data: u8) {
+        self.cycles += 1;
+
         self.pins.address = address;
         self.pins.data = data;
         self.pins.rw = false;

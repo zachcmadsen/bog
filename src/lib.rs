@@ -2,7 +2,7 @@
 
 mod cpu;
 
-pub use cpu::Cpu;
+pub use cpu::{Cpu, Status};
 
 pub struct Pins {
     pub address: u16,
