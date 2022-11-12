@@ -100,11 +100,6 @@ where
         }
     }
 
-    pub fn reset(&mut self) {
-        self.rst = true;
-        self.step();
-    }
-
     /// Executes the next instruction.
     pub fn step(&mut self) {
         let opcode = if self.rst || self.prev_need_nmi || self.prev_irq {
