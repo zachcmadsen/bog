@@ -71,7 +71,7 @@ pub struct Cpu<B> {
     need_nmi: bool,
     rst: bool,
 
-    bus: B,
+    pub bus: B,
 }
 
 impl<B> Cpu<B>
@@ -960,8 +960,8 @@ where
         if M == IMPLIED {
             self.read_byte(self.pc);
         } else {
-            self.effective_address::<M, false>();
-            self.read_byte(self.pc);
+            let effective_address = self.effective_address::<M, false>();
+            self.read_byte(effective_address);
         }
     }
 
