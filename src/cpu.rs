@@ -433,7 +433,7 @@ where
 
     fn read_word(&mut self, address: u16) -> u16 {
         let low = self.read_byte(address);
-        let high = self.read_byte(address + 1);
+        let high = self.read_byte(address.wrapping_add(1));
         (high as u16) << 8 | low as u16
     }
 
