@@ -1,7 +1,6 @@
 use std::io::BufReader;
 
 use bog::{Bus, Cpu, Pins, Status};
-use rayon::prelude::*;
 use serde::Deserialize;
 
 const FUNCTIONAL_TEST_ROM: &[u8] =
@@ -176,7 +175,7 @@ fn interrupt_test() {
 
 #[test]
 fn processor_tests() {
-    (0x00..=0xffu8).into_par_iter().for_each(|opcode| {
+    (0x00..=0xffu8).for_each(|opcode| {
         // These opcodes aren't implemented yet.
         if matches!(
             opcode,
