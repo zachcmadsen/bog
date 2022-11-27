@@ -2,6 +2,7 @@
 name = "bog"
 version = "0.1.0"
 edition = "2021"
+exclude = ["roms/*.a65", "roms/*.lst"]
 
 [dependencies]
 bitflags = "2.0.0-rc.1"
