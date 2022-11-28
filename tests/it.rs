@@ -175,6 +175,8 @@ fn interrupt_test() {
 
 #[test]
 fn processor_tests() {
+    let mut cpu = Cpu::new(ProcessorTestBus::new());
+
     (0x00..=0xffu8).for_each(|opcode| {
         // These opcodes aren't implemented yet.
         if matches!(
@@ -214,8 +216,6 @@ fn processor_tests() {
         let tests: Vec<Test> = serde_json::from_reader(buf_reader).unwrap();
 
         for test in tests {
-            let mut cpu = Cpu::new(ProcessorTestBus::new());
-
             let initial = test.initial;
             cpu.pc = initial.pc;
             cpu.s = initial.s;
