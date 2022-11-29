@@ -1,9 +1,6 @@
-use bog::{Bus, Cpu, Pins};
+use std::fs;
 
-const FUNCTIONAL_TEST_ROM: &[u8] =
-    include_bytes!("../../roms/6502_functional_test.bin");
-const INTERRUPT_TEST_ROM: &[u8] =
-    include_bytes!("../../roms/6502_interrupt_test.bin");
+use bog::{Bus, Cpu, Pins};
 
 const ZERO_PAGE_START: usize = 0xa;
 const CODE_SEGMENT_START: u16 = 0x400;
@@ -13,40 +10,20 @@ const NMI_MASK: u8 = 0x2;
 const FUNCTIONAL_TEST_SUCCESS: u16 = 0x336d;
 const INTERRUPT_TEST_SUCCESS: u16 = 0x6f5;
 
-struct FunctionalTestBus {
+struct KlausTestBus {
     memory: [u8; 0x10000],
 }
 
-impl FunctionalTestBus {
-    fn new() -> FunctionalTestBus {
+impl KlausTestBus {
+    fn new(rom: &[u8]) -> KlausTestBus {
         let mut memory = [0; 0x10000];
-        memory[ZERO_PAGE_START..].copy_from_slice(FUNCTIONAL_TEST_ROM);
-        FunctionalTestBus { memory }
+        memory[ZERO_PAGE_START..].copy_from_slice(&rom);
+
+        KlausTestBus { memory }
     }
 }
 
-impl Bus for FunctionalTestBus {
-    fn tick(&mut self, pins: &mut Pins) {
-        match pins.rw {
-            true => pins.data = self.memory[pins.address as usize],
-            false => self.memory[pins.address as usize] = pins.data,
-        }
-    }
-}
-
-struct InterruptTestBus {
-    memory: [u8; 0x10000],
-}
-
-impl InterruptTestBus {
-    fn new() -> InterruptTestBus {
-        let mut memory = [0; 0x10000];
-        memory[ZERO_PAGE_START..].copy_from_slice(INTERRUPT_TEST_ROM);
-        InterruptTestBus { memory }
-    }
-}
-
-impl Bus for InterruptTestBus {
+impl Bus for KlausTestBus {
     fn tick(&mut self, pins: &mut Pins) {
         match pins.rw {
             true => pins.data = self.memory[pins.address as usize],
@@ -68,7 +45,10 @@ impl Bus for InterruptTestBus {
 
 #[test]
 fn functional() {
-    let mut cpu = Cpu::new(FunctionalTestBus::new());
+    let rom = fs::read("roms/klaus/6502_functional_test.bin")
+        .expect("6502_functional_test.bin should exist");
+    let mut cpu = Cpu::new(KlausTestBus::new(&rom));
+
     cpu.pc = CODE_SEGMENT_START;
     let mut prev_pc = cpu.pc;
 
@@ -89,7 +69,10 @@ fn functional() {
 
 #[test]
 fn interrupt() {
-    let mut cpu = Cpu::new(InterruptTestBus::new());
+    let rom = fs::read("roms/klaus/6502_interrupt_test.bin")
+        .expect("6502_interrupt_test.bin should exist");
+    let mut cpu = Cpu::new(KlausTestBus::new(&rom));
+
     cpu.pc = CODE_SEGMENT_START;
     let mut prev_pc = cpu.pc;
 
