@@ -1,7 +1,7 @@
 use std::io::BufReader;
 
+use bincode::Decode;
 use bog::{Bus, Cpu, Pins, Status};
-use serde::Deserialize;
 
 const FUNCTIONAL_TEST_ROM: &[u8] =
     include_bytes!("../roms/6502_functional_test.bin");
@@ -69,7 +69,7 @@ impl Bus for InterruptTestBus {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Decode)]
 struct State {
     pc: u16,
     s: u8,
@@ -80,20 +80,22 @@ struct State {
     ram: Vec<[u16; 2]>,
 }
 
-#[derive(Deserialize)]
-struct Test {
-    // name: String,
-    initial: State,
-    r#final: State,
-    // cycles: Vec<Cycle>,
+#[derive(Decode)]
+#[allow(dead_code)]
+struct Cycle {
+    address: u16,
+    data: u8,
+    kind: String,
 }
 
-// #[derive(Deserialize)]
-// struct Cycle {
-//     address: u16,
-//     data: u8,
-//     kind: String,
-// }
+#[derive(Decode)]
+#[allow(dead_code)]
+struct Test {
+    name: String,
+    initial: State,
+    r#final: State,
+    cycles: Vec<Cycle>,
+}
 
 struct ProcessorTestBus {
     memory: [u8; 0x10000],
@@ -177,7 +179,7 @@ fn interrupt_test() {
 fn processor_tests() {
     let mut cpu = Cpu::new(ProcessorTestBus::new());
 
-    (0x00..=0xffu8).for_each(|opcode| {
+    for opcode in 0x00..=0xff {
         // These opcodes aren't implemented yet.
         if matches!(
             opcode,
@@ -206,14 +208,17 @@ fn processor_tests() {
                 | 0xd2
                 | 0xf2
         ) {
-            return;
+            continue;
         }
 
-        let filename =
-            format!("../ProcessorTests/nes6502/v1/{:02x}.json", opcode);
+        let filename = format!("roms/ProcessorTests/{:02x}.bincode", opcode);
         let file = std::fs::File::open(filename).unwrap();
-        let buf_reader = BufReader::new(file);
-        let tests: Vec<Test> = serde_json::from_reader(buf_reader).unwrap();
+        let mut buf_reader = BufReader::new(file);
+        let tests: Vec<Test> = bincode::decode_from_std_read(
+            &mut buf_reader,
+            bincode::config::standard(),
+        )
+        .unwrap();
 
         for test in tests {
             let initial = test.initial;
@@ -240,5 +245,5 @@ fn processor_tests() {
                 assert_eq!(cpu.bus.memory[address as usize], data as u8);
             }
         }
-    });
+    }
 }
