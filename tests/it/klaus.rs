@@ -46,7 +46,7 @@ impl Bus for KlausTestBus {
 #[test]
 fn functional() {
     let rom = fs::read("roms/klaus/6502_functional_test.bin")
-        .expect("6502_functional_test.bin should exist");
+        .expect("roms/klaus/6502_functional_test.bin should exist");
     let mut cpu = Cpu::new(KlausTestBus::new(&rom));
 
     cpu.pc = CODE_SEGMENT_START;
@@ -70,7 +70,7 @@ fn functional() {
 #[test]
 fn interrupt() {
     let rom = fs::read("roms/klaus/6502_interrupt_test.bin")
-        .expect("6502_interrupt_test.bin should exist");
+        .expect("roms/klaus/6502_interrupt_test.bin should exist");
     let mut cpu = Cpu::new(KlausTestBus::new(&rom));
 
     cpu.pc = CODE_SEGMENT_START;

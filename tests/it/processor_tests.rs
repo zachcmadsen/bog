@@ -1,4 +1,4 @@
-use std::io::BufReader;
+use std::{fs::File, io::BufReader};
 
 use bincode::Decode;
 use bog::{Bus, Cpu, Pins, Status};
@@ -104,7 +104,8 @@ fn all() {
         }
 
         let filename = format!("roms/ProcessorTests/{:02x}.bincode", opcode);
-        let file = std::fs::File::open(filename).unwrap();
+        let file = File::open(&filename)
+            .expect(&format!("{} should exist", &filename));
         let mut buf_reader = BufReader::new(file);
         let tests: Vec<Test> = bincode::decode_from_std_read(
             &mut buf_reader,
