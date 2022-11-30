@@ -49,6 +49,9 @@ fn functional() {
         .expect("roms/klaus/6502_functional_test.bin should exist");
     let mut cpu = Cpu::new(KlausTestBus::new(&rom));
 
+    // Run through the reset sequence.
+    cpu.step();
+
     cpu.pc = CODE_SEGMENT_START;
     let mut prev_pc = cpu.pc;
 
@@ -72,6 +75,9 @@ fn interrupt() {
     let rom = fs::read("roms/klaus/6502_interrupt_test.bin")
         .expect("roms/klaus/6502_interrupt_test.bin should exist");
     let mut cpu = Cpu::new(KlausTestBus::new(&rom));
+
+    // Run through the reset sequence.
+    cpu.step();
 
     cpu.pc = CODE_SEGMENT_START;
     let mut prev_pc = cpu.pc;

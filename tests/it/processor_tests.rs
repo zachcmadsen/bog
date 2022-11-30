@@ -71,6 +71,9 @@ impl Bus for ProcessorTestBus {
 fn all() {
     let mut cpu = Cpu::new(ProcessorTestBus::new());
 
+    // Run through the reset sequence.
+    cpu.step();
+
     for opcode in 0x00..=0xff {
         // These opcodes aren't implemented yet.
         if matches!(

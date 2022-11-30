@@ -95,7 +95,7 @@ where
             prev_nmi: false,
             prev_need_nmi: false,
             need_nmi: false,
-            rst: false,
+            rst: true,
             bus,
         }
     }
