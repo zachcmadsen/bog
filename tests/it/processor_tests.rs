@@ -78,13 +78,10 @@ fn all() {
         // These opcodes aren't implemented yet.
         if matches!(
             opcode,
-            0x02 | 0x0b
-                | 0x12
+            0x02 | 0x12
                 | 0x22
-                | 0x2b
                 | 0x32
                 | 0x42
-                | 0x4b
                 | 0x52
                 | 0x62
                 | 0x6b
@@ -99,7 +96,6 @@ fn all() {
                 | 0xab
                 | 0xb2
                 | 0xbb
-                | 0xcb
                 | 0xd2
                 | 0xf2
         ) {
