@@ -106,6 +106,7 @@ where
             if self.rst {
                 self.rst = false;
                 self.interrupt = Interrupt::Reset;
+                // TODO: Reset CPU struct fields?
             } else if self.prev_need_nmi {
                 self.need_nmi = false;
                 self.interrupt = Interrupt::Nmi
@@ -129,6 +130,9 @@ where
             0x61 => self.adc::<INDEXED_INDIRECT>(),
             0x71 => self.adc::<INDIRECT_INDEXED>(),
 
+            0x0b => self.anc::<IMMEDIATE>(),
+            0x2b => self.anc::<IMMEDIATE>(),
+
             0x29 => self.and::<IMMEDIATE>(),
             0x25 => self.and::<ZERO_PAGE>(),
             0x35 => self.and::<ZERO_PAGE_X>(),
@@ -137,6 +141,10 @@ where
             0x39 => self.and::<ABSOLUTE_Y>(),
             0x21 => self.and::<INDEXED_INDIRECT>(),
             0x31 => self.and::<INDIRECT_INDEXED>(),
+
+            0x4b => self.alr::<IMMEDIATE>(),
+
+            0x6b => self.arr::<IMMEDIATE>(),
 
             0x0a => self.asl::<ACCUMULATOR>(),
             0x06 => self.asl::<ZERO_PAGE>(),
@@ -272,6 +280,8 @@ where
             0x4e => self.lsr::<ABSOLUTE>(),
             0x5e => self.lsr::<ABSOLUTE_X>(),
 
+            0xab => self.lxa::<IMMEDIATE>(),
+
             0x1a => self.nop::<IMPLIED>(),
             0x3a => self.nop::<IMPLIED>(),
             0x5a => self.nop::<IMPLIED>(),
@@ -365,11 +375,17 @@ where
             0xe1 => self.sbc::<INDEXED_INDIRECT>(),
             0xf1 => self.sbc::<INDIRECT_INDEXED>(),
 
+            0xcb => self.sbx::<IMMEDIATE>(),
+
             0x38 => self.sec(),
 
             0xf8 => self.sed(),
 
             0x78 => self.sei(),
+
+            0x9e => self.shx::<ABSOLUTE_Y>(),
+
+            0x9c => self.shy::<ABSOLUTE_X>(),
 
             0x07 => self.slo::<ZERO_PAGE>(),
             0x17 => self.slo::<ZERO_PAGE_X>(),
@@ -708,12 +724,51 @@ where
         self.add(value);
     }
 
+    fn anc<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        self.a &= self.read_byte(effective_address);
+
+        self.p.set(Status::C, self.a & 0x80 != 0);
+        self.p.set(Status::Z, self.a == 0);
+        self.p.set(Status::N, self.a & 0x80 != 0);
+    }
+
     fn and<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
 
         self.a &= self.read_byte(effective_address);
 
         self.p.set(Status::Z, self.a == 0);
+        self.p.set(Status::N, self.a & 0x80 != 0);
+    }
+
+    fn alr<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        self.a &= self.read_byte(effective_address);
+        let carry = self.a & 0x01 != 0;
+        self.a = self.a.wrapping_shr(1);
+
+        self.p.set(Status::C, carry);
+        self.p.set(Status::Z, self.a == 0);
+        self.p.set(Status::N, self.a & 0x80 != 0);
+    }
+
+    fn arr<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        self.a &= self.read_byte(effective_address);
+        self.a =
+            (self.p.contains(Status::C) as u8) << 7 | self.a.wrapping_shr(1);
+
+        // TODO: Explain how the carry and overflow flag are set.
+        self.p.set(Status::C, self.a & 0x40 != 0);
+        self.p.set(Status::Z, self.a == 0);
+        self.p.set(
+            Status::V,
+            ((self.p.contains(Status::C) as u8) ^ ((self.a >> 5) & 0x01)) != 0,
+        );
         self.p.set(Status::N, self.a & 0x80 != 0);
     }
 
@@ -956,6 +1011,20 @@ where
         self.read_modify_write::<M>(InstructionName::Lsr);
     }
 
+    fn lxa<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        // This instruction should perform a bitwise AND between a constant and
+        // the operand before storing the result. The constant is unreliable
+        // though. To remove uncertainty, we have the constant always be 0xff,
+        // removing the need for the bitwise AND.
+        self.a = self.read_byte(effective_address);
+        self.x = self.a;
+
+        self.p.set(Status::Z, self.a == 0);
+        self.p.set(Status::N, self.a & 0x80 != 0);
+    }
+
     fn nop<const M: u8>(&mut self) {
         if M == IMPLIED {
             self.read_byte(self.pc);
@@ -1059,6 +1128,18 @@ where
         self.add(value);
     }
 
+    fn sbx<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        let value = self.read_byte(effective_address);
+        let carry = (self.a & self.x) >= value;
+        self.x = (self.a & self.x).wrapping_sub(value);
+
+        self.p.set(Status::C, carry);
+        self.p.set(Status::Z, self.x == 0);
+        self.p.set(Status::N, self.x & 0x80 != 0);
+    }
+
     fn sec(&mut self) {
         self.read_byte(self.pc);
         self.p.insert(Status::C);
@@ -1072,6 +1153,34 @@ where
     fn sei(&mut self) {
         self.read_byte(self.pc);
         self.p.insert(Status::I);
+    }
+
+    fn shx<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, true>();
+
+        let high_byte = (effective_address & 0xff00) >> 8;
+        let low_byte = effective_address & 0x00ff;
+        let value = self.x & (high_byte as u8).wrapping_add(1);
+
+        // https://forums.nesdev.org/viewtopic.php?f=3&t=3831&start=30
+        self.write_byte(
+            ((self.x as u16 & (high_byte.wrapping_add(1))) << 8) | low_byte,
+            value,
+        );
+    }
+
+    fn shy<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, true>();
+
+        let high_byte = (effective_address & 0xff00) >> 8;
+        let low_byte = effective_address & 0x00ff;
+        let value = self.y & (high_byte as u8).wrapping_add(1);
+
+        // https://forums.nesdev.org/viewtopic.php?f=3&t=3831&start=30
+        self.write_byte(
+            ((self.y as u16 & (high_byte.wrapping_add(1))) << 8) | low_byte,
+            value,
+        );
     }
 
     fn slo<const M: u8>(&mut self) {
