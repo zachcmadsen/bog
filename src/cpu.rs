@@ -144,6 +144,8 @@ where
 
             0x4b => self.alr::<IMMEDIATE>(),
 
+            0x8b => self.ane::<IMMEDIATE>(),
+
             0x6b => self.arr::<IMMEDIATE>(),
 
             0x0a => self.asl::<ACCUMULATOR>(),
@@ -258,6 +260,8 @@ where
             0x6c => self.jmp::<INDIRECT>(),
 
             0x20 => self.jsr(),
+
+            0xbb => self.las::<ABSOLUTE_Y>(),
 
             0xa7 => self.lax::<ZERO_PAGE>(),
             0xb7 => self.lax::<ZERO_PAGE_Y>(),
@@ -396,6 +400,9 @@ where
 
             0x78 => self.sei(),
 
+            0x93 => self.sha::<ABSOLUTE_Y>(),
+            0x9f => self.sha::<INDIRECT_INDEXED>(),
+
             0x9e => self.shx::<ABSOLUTE_Y>(),
 
             0x9c => self.shy::<ABSOLUTE_X>(),
@@ -432,6 +439,8 @@ where
             0x94 => self.sty::<ZERO_PAGE_X>(),
             0x8c => self.sty::<ABSOLUTE>(),
 
+            0x9b => self.tas::<ABSOLUTE_Y>(),
+
             0xaa => self.tax(),
 
             0xa8 => self.tay(),
@@ -443,8 +452,6 @@ where
             0x9a => self.txs(),
 
             0x98 => self.tya(),
-
-            _ => unreachable!("unsupported opcode: 0x{:02X}", opcode),
         };
     }
 
@@ -768,6 +775,13 @@ where
         self.p.set(Status::N, self.a & 0x80 != 0);
     }
 
+    fn ane<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        // Treat ANE as a NOP since it's unstable.
+        self.read_byte(effective_address);
+    }
+
     fn arr<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
 
@@ -987,6 +1001,17 @@ where
         self.pc = (pch as u16) << 8 | pcl as u16;
     }
 
+    fn las<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, false>();
+
+        self.a = self.read_byte(effective_address) & self.s;
+        self.x = self.a;
+        self.s = self.a;
+
+        self.p.set(Status::Z, self.a == 0);
+        self.p.set(Status::N, self.a & 0x80 != 0);
+    }
+
     fn lax<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
 
@@ -1173,6 +1198,22 @@ where
         self.p.insert(Status::I);
     }
 
+    fn sha<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, true>();
+
+        let high_byte = (effective_address & 0xff00) >> 8;
+        let low_byte = effective_address & 0x00ff;
+        let value = self.a & self.x & (high_byte as u8).wrapping_add(1);
+
+        // https://forums.nesdev.org/viewtopic.php?f=3&t=3831&start=30
+        self.write_byte(
+            ((self.a as u16 & self.x as u16 & (high_byte.wrapping_add(1)))
+                << 8)
+                | low_byte,
+            value,
+        );
+    }
+
     fn shx<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, true>();
 
@@ -1233,6 +1274,23 @@ where
         let effective_address = self.effective_address::<M, true>();
 
         self.write_byte(effective_address, self.y);
+    }
+
+    fn tas<const M: u8>(&mut self) {
+        let effective_address = self.effective_address::<M, true>();
+
+        let high_byte = (effective_address & 0xff00) >> 8;
+        let low_byte = effective_address & 0x00ff;
+        let value = self.a & self.x & (high_byte as u8).wrapping_add(1);
+        self.s = self.a & self.x;
+
+        // https://forums.nesdev.org/viewtopic.php?f=3&t=3831&start=30
+        self.write_byte(
+            ((self.a as u16 & self.x as u16 & (high_byte.wrapping_add(1)))
+                << 8)
+                | low_byte,
+            value,
+        );
     }
 
     fn tax(&mut self) {
