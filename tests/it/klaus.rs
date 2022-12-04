@@ -17,7 +17,7 @@ struct KlausTestBus {
 impl KlausTestBus {
     fn new(rom: &[u8]) -> KlausTestBus {
         let mut memory = [0; 0x10000];
-        memory[ZERO_PAGE_START..].copy_from_slice(&rom);
+        memory[ZERO_PAGE_START..].copy_from_slice(rom);
 
         KlausTestBus { memory }
     }

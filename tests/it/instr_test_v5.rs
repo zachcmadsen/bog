@@ -107,7 +107,7 @@ impl Bus for NesBus {
 
 fn run(rom_filepath: &str) {
     let rom = fs::read(rom_filepath)
-        .expect(&format!("{} should exist", rom_filepath));
+        .unwrap_or_else(|_| panic!("{} should exist", rom_filepath));
 
     let cartridge = NromCartridge::new(&rom);
     let bus = NesBus::new(cartridge);

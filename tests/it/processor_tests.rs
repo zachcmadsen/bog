@@ -68,20 +68,19 @@ impl Bus for ProcessorTestBus {
 }
 
 fn run(opcode: u8) {
-    let mut cpu = Cpu::new(ProcessorTestBus::new());
-
-    // Run through the reset sequence.
-    cpu.step();
-
     let filename = format!("roms/ProcessorTests/{:02x}.bincode", opcode);
-    let file =
-        File::open(&filename).expect(&format!("{} should exist", &filename));
+    let file = File::open(&filename)
+        .unwrap_or_else(|_| panic!("{} should exist", &filename));
     let mut buf_reader = BufReader::new(file);
     let tests: Vec<Test> = bincode::decode_from_std_read(
         &mut buf_reader,
         bincode::config::standard(),
     )
     .unwrap();
+
+    let mut cpu = Cpu::new(ProcessorTestBus::new());
+    // Run through the reset sequence.
+    cpu.step();
 
     for test in tests {
         let initial = test.initial;
