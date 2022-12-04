@@ -241,6 +241,19 @@ where
             0xe3 => self.isb::<INDEXED_INDIRECT>(),
             0xf3 => self.isb::<INDIRECT_INDEXED>(),
 
+            0x02 => self.jam(),
+            0x12 => self.jam(),
+            0x22 => self.jam(),
+            0x32 => self.jam(),
+            0x42 => self.jam(),
+            0x52 => self.jam(),
+            0x62 => self.jam(),
+            0x72 => self.jam(),
+            0x92 => self.jam(),
+            0xb2 => self.jam(),
+            0xd2 => self.jam(),
+            0xf2 => self.jam(),
+
             0x4c => self.jmp::<ABSOLUTE>(),
             0x6c => self.jmp::<INDIRECT>(),
 
@@ -954,6 +967,11 @@ where
     fn isb<const M: u8>(&mut self) {
         let result = self.read_modify_write::<M>(InstructionName::Isb);
         self.add(result ^ 0xff);
+    }
+
+    fn jam(&mut self) {
+        // Treat JAM as a one byte NOP.
+        self.read_byte(self.pc);
     }
 
     fn jmp<const M: u8>(&mut self) {
