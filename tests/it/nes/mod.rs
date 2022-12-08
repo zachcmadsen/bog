@@ -1,4 +1,5 @@
 mod instr_test_v5;
+mod nestest;
 
 use bog::{Bus, Pins};
 
