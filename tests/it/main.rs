@@ -1,3 +1,3 @@
-mod instr_test_v5;
 mod klaus;
+mod nes;
 mod processor_tests;
