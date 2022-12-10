@@ -468,6 +468,24 @@ where
             self.rst = self.pins.rst;
         }
     }
+
+    fn set_a(&mut self, value: u8) {
+        self.a = value;
+        self.p.set(Status::Z, self.a == 0);
+        self.p.set(Status::N, self.a & 0x80 != 0);
+    }
+
+    fn set_x(&mut self, value: u8) {
+        self.x = value;
+        self.p.set(Status::Z, self.x == 0);
+        self.p.set(Status::N, self.x & 0x80 != 0);
+    }
+
+    fn set_y(&mut self, value: u8) {
+        self.y = value;
+        self.p.set(Status::Z, self.y == 0);
+        self.p.set(Status::N, self.y & 0x80 != 0);
+    }
 }
 
 enum InstructionName {
@@ -673,21 +691,16 @@ where
 
     fn anc<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.a &= self.read_byte(effective_address);
+        let operand = self.read_byte(effective_address);
+        self.set_a(self.a & operand);
 
         self.p.set(Status::C, self.a & 0x80 != 0);
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
     }
 
     fn and<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.a &= self.read_byte(effective_address);
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        let operand = self.read_byte(effective_address);
+        self.set_a(self.a & operand);
     }
 
     fn alr<const M: u8>(&mut self) {
@@ -695,11 +708,9 @@ where
 
         self.a &= self.read_byte(effective_address);
         let carry = self.a & 0x01 != 0;
-        self.a = self.a.wrapping_shr(1);
+        self.set_a(self.a.wrapping_shr(1));
 
         self.p.set(Status::C, carry);
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
     }
 
     fn ane<const M: u8>(&mut self) {
@@ -713,17 +724,16 @@ where
         let effective_address = self.effective_address::<M, false>();
 
         self.a &= self.read_byte(effective_address);
-        self.a =
-            (self.p.contains(Status::C) as u8) << 7 | self.a.wrapping_shr(1);
+        self.set_a(
+            (self.p.contains(Status::C) as u8) << 7 | self.a.wrapping_shr(1),
+        );
 
         // TODO: Explain how the carry and overflow flag are set.
         self.p.set(Status::C, self.a & 0x40 != 0);
-        self.p.set(Status::Z, self.a == 0);
         self.p.set(
             Status::V,
             ((self.p.contains(Status::C) as u8) ^ ((self.a >> 5) & 0x01)) != 0,
         );
-        self.p.set(Status::N, self.a & 0x80 != 0);
     }
 
     fn asl<const M: u8>(&mut self) {
@@ -862,27 +872,18 @@ where
 
     fn dex(&mut self) {
         self.read_byte(self.pc);
-        self.x = self.x.wrapping_sub(1);
-
-        self.p.set(Status::Z, self.x == 0);
-        self.p.set(Status::N, self.x & 0x80 != 0);
+        self.set_x(self.x.wrapping_sub(1));
     }
 
     fn dey(&mut self) {
         self.read_byte(self.pc);
-        self.y = self.y.wrapping_sub(1);
-
-        self.p.set(Status::Z, self.y == 0);
-        self.p.set(Status::N, self.y & 0x80 != 0);
+        self.set_y(self.y.wrapping_sub(1));
     }
 
     fn eor<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.a ^= self.read_byte(effective_address);
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        let operand = self.read_byte(effective_address);
+        self.set_a(self.a ^ operand);
     }
 
     fn inc<const M: u8>(&mut self) {
@@ -891,18 +892,12 @@ where
 
     fn inx(&mut self) {
         self.read_byte(self.pc);
-        self.x = self.x.wrapping_add(1);
-
-        self.p.set(Status::Z, self.x == 0);
-        self.p.set(Status::N, self.x & 0x80 != 0);
+        self.set_x(self.x.wrapping_add(1));
     }
 
     fn iny(&mut self) {
         self.read_byte(self.pc);
-        self.y = self.y.wrapping_add(1);
-
-        self.p.set(Status::Z, self.y == 0);
-        self.p.set(Status::N, self.y & 0x80 != 0);
+        self.set_y(self.y.wrapping_add(1));
     }
 
     fn isb<const M: u8>(&mut self) {
@@ -932,11 +927,8 @@ where
         let effective_address = self.effective_address::<M, false>();
 
         self.a = self.read_byte(effective_address) & self.s;
-        self.x = self.a;
+        self.set_x(self.a);
         self.s = self.a;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
     }
 
     fn lax<const M: u8>(&mut self) {
@@ -944,37 +936,25 @@ where
 
         let value = self.read_byte(effective_address);
         self.a = value;
-        self.x = value;
-
-        self.p.set(Status::Z, value == 0);
-        self.p.set(Status::N, value & 0x80 != 0);
+        self.set_x(value);
     }
 
     fn lda<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.a = self.read_byte(effective_address);
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        let operand = self.read_byte(effective_address);
+        self.set_a(operand);
     }
 
     fn ldx<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.x = self.read_byte(effective_address);
-
-        self.p.set(Status::Z, self.x == 0);
-        self.p.set(Status::N, self.x & 0x80 != 0);
+        let operand = self.read_byte(effective_address);
+        self.set_x(operand);
     }
 
     fn ldy<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.y = self.read_byte(effective_address);
-
-        self.p.set(Status::Z, self.y == 0);
-        self.p.set(Status::N, self.y & 0x80 != 0);
+        let operand = self.read_byte(effective_address);
+        self.set_y(operand);
     }
 
     fn lsr<const M: u8>(&mut self) {
@@ -989,10 +969,7 @@ where
         // though. To remove uncertainty, we have the constant always be 0xff,
         // removing the need for the bitwise AND.
         self.a = self.read_byte(effective_address);
-        self.x = self.a;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        self.set_x(self.a);
     }
 
     fn nop<const M: u8>(&mut self) {
@@ -1006,11 +983,8 @@ where
 
     fn ora<const M: u8>(&mut self) {
         let effective_address = self.effective_address::<M, false>();
-
-        self.a |= self.read_byte(effective_address);
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        let operand = self.read_byte(effective_address);
+        self.set_a(self.a | operand);
     }
 
     fn pha(&mut self) {
@@ -1026,10 +1000,8 @@ where
     fn pla(&mut self) {
         self.read_byte(self.pc);
         self.peek();
-        self.a = self.pop();
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        let value = self.pop();
+        self.set_a(value);
     }
 
     fn plp(&mut self) {
@@ -1042,10 +1014,7 @@ where
 
     fn rla<const M: u8>(&mut self) {
         let result = self.read_modify_write::<M>(InstructionName::Rla);
-        self.a &= result;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        self.set_a(self.a & result);
     }
 
     fn rol<const M: u8>(&mut self) {
@@ -1103,11 +1072,9 @@ where
 
         let value = self.read_byte(effective_address);
         let carry = (self.a & self.x) >= value;
-        self.x = (self.a & self.x).wrapping_sub(value);
+        self.set_x((self.a & self.x).wrapping_sub(value));
 
         self.p.set(Status::C, carry);
-        self.p.set(Status::Z, self.x == 0);
-        self.p.set(Status::N, self.x & 0x80 != 0);
     }
 
     fn sec(&mut self) {
@@ -1171,18 +1138,12 @@ where
 
     fn slo<const M: u8>(&mut self) {
         let result = self.read_modify_write::<M>(InstructionName::Slo);
-        self.a |= result;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        self.set_a(self.a | result);
     }
 
     fn sre<const M: u8>(&mut self) {
         let result = self.read_modify_write::<M>(InstructionName::Sre);
-        self.a ^= result;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        self.set_a(self.a ^ result);
     }
 
     fn sta<const M: u8>(&mut self) {
@@ -1222,34 +1183,22 @@ where
 
     fn tax(&mut self) {
         self.read_byte(self.pc);
-        self.x = self.a;
-
-        self.p.set(Status::Z, self.x == 0);
-        self.p.set(Status::N, self.x & 0x80 != 0);
+        self.set_x(self.a);
     }
 
     fn tay(&mut self) {
         self.read_byte(self.pc);
-        self.y = self.a;
-
-        self.p.set(Status::Z, self.y == 0);
-        self.p.set(Status::N, self.y & 0x80 != 0);
+        self.set_y(self.a);
     }
 
     fn tsx(&mut self) {
         self.read_byte(self.pc);
-        self.x = self.s;
-
-        self.p.set(Status::Z, self.x == 0);
-        self.p.set(Status::N, self.x & 0x80 != 0);
+        self.set_x(self.s);
     }
 
     fn txa(&mut self) {
         self.read_byte(self.pc);
-        self.a = self.x;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        self.set_a(self.x);
     }
 
     fn txs(&mut self) {
@@ -1259,9 +1208,6 @@ where
 
     fn tya(&mut self) {
         self.read_byte(self.pc);
-        self.a = self.y;
-
-        self.p.set(Status::Z, self.a == 0);
-        self.p.set(Status::N, self.a & 0x80 != 0);
+        self.set_a(self.y);
     }
 }
