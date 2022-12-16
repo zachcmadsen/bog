@@ -20,8 +20,7 @@ impl NromCartridge {
         }
 
         let num_prg_rom_banks = header[4];
-        let num_prg_ram_banks =
-            if header[8] == 0 { 1 } else { header[8] } as usize;
+        let num_prg_ram_banks = if header[8] == 0 { 1 } else { header[8] };
 
         const PRG_ROM_BANK_SIZE: usize = 0x4000;
         const PRG_RAM_BANK_SIZE: usize = 0x2000;
