@@ -38,8 +38,8 @@ fn nestest() {
     cpu.p = Status::from_bits(0x24).unwrap();
     cpu.s = 0xfd;
 
-    let log = File::open("roms/nestest/nestest_log.bincode")
-        .expect("roms/nestest/nestest_log.bincode should exist");
+    let log = File::open("roms/nestest/nestest.log.bincode")
+        .expect("roms/nestest/nestest.log.bincode should exist");
     let mut buf_reader = BufReader::new(log);
     let expected_states: Vec<State> = bincode::decode_from_std_read(
         &mut buf_reader,
