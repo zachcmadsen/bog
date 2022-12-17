@@ -19,6 +19,19 @@ const ZERO_PAGE: u8 = 9;
 const ZERO_PAGE_X: u8 = 10;
 const ZERO_PAGE_Y: u8 = 11;
 
+const ASL: u8 = 0;
+const DCP: u8 = 1;
+const DEC: u8 = 2;
+const INC: u8 = 3;
+const ISB: u8 = 4;
+const LSR: u8 = 5;
+const RLA: u8 = 6;
+const ROL: u8 = 7;
+const ROR: u8 = 8;
+const RRA: u8 = 9;
+const SLO: u8 = 10;
+const SRE: u8 = 11;
+
 const BRK_OPCODE: u8 = 0x00;
 
 const STACK_BASE: u16 = 0x0100;
@@ -488,21 +501,6 @@ where
     }
 }
 
-enum InstructionName {
-    Asl,
-    Slo,
-    Dcp,
-    Dec,
-    Inc,
-    Isb,
-    Lsr,
-    Sre,
-    Rol,
-    Rla,
-    Ror,
-    Rra,
-}
-
 // Instruction helpers
 impl<B> Cpu<B>
 where
@@ -547,29 +545,22 @@ where
         self.p.set(Status::N, result & 0x80 != 0);
     }
 
-    fn modify(&mut self, name: InstructionName, value: u8) -> u8 {
-        let (result, carry) = match name {
-            InstructionName::Asl | InstructionName::Slo => {
-                (value.wrapping_shl(1), value & 0x80 != 0)
-            }
-            InstructionName::Dcp | InstructionName::Dec => {
-                (value.wrapping_sub(1), self.p.contains(Status::C))
-            }
-            InstructionName::Inc | InstructionName::Isb => {
-                (value.wrapping_add(1), self.p.contains(Status::C))
-            }
-            InstructionName::Lsr | InstructionName::Sre => {
-                (value.wrapping_shr(1), value & 0x01 != 0)
-            }
-            InstructionName::Rol | InstructionName::Rla => (
+    fn modify<const I: u8>(&mut self, value: u8) -> u8 {
+        let (result, carry) = match I {
+            ASL | SLO => (value.wrapping_shl(1), value & 0x80 != 0),
+            DCP | DEC => (value.wrapping_sub(1), self.p.contains(Status::C)),
+            INC | ISB => (value.wrapping_add(1), self.p.contains(Status::C)),
+            LSR | SRE => (value.wrapping_shr(1), value & 0x01 != 0),
+            ROL | RLA => (
                 value.wrapping_shl(1) | self.p.contains(Status::C) as u8,
                 value & 0x80 != 0,
             ),
-            InstructionName::Ror | InstructionName::Rra => (
+            ROR | RRA => (
                 (self.p.contains(Status::C) as u8) << 7
                     | value.wrapping_shr(1),
                 value & 0x01 != 0,
             ),
+            _ => unreachable!("unexpected RMW instruction: {}", I),
         };
 
         self.p.set(Status::C, carry);
@@ -579,31 +570,26 @@ where
         result
     }
 
-    fn read_modify_write<const M: u8>(&mut self, name: InstructionName) -> u8 {
-        // TODO: This simplifies all RMW instructions, but the performance is worse
-        // since there are multiple matches. It might be worth investigating.
-        match M {
-            ACCUMULATOR => {
-                self.read_byte(self.pc);
-                self.a = self.modify(name, self.a);
-                self.a
-            }
-            _ => {
-                // Treat it as a write instruction while fetching the effective
-                // address to get the cycle count right.
-                let effective_address = self.effective_address::<M, true>();
-                let value = self.read_byte(effective_address);
+    fn read_modify_write<const M: u8, const I: u8>(&mut self) -> u8 {
+        if M == ACCUMULATOR {
+            self.read_byte(self.pc);
+            self.a = self.modify::<I>(self.a);
+            self.a
+        } else {
+            // Treat it as a write instruction while fetching the effective
+            // address to get the cycle count right.
+            let effective_address = self.effective_address::<M, true>();
+            let value = self.read_byte(effective_address);
 
-                // Read-Modify-Write instructions have an extra write since it
-                // takes an extra cycle to modify the value.
-                self.write_byte(effective_address, value);
+            // Read-Modify-Write instructions have an extra write since it
+            // takes an extra cycle to modify the value.
+            self.write_byte(effective_address, value);
 
-                let result = self.modify(name, value);
+            let result = self.modify::<I>(value);
 
-                self.write_byte(effective_address, result);
+            self.write_byte(effective_address, result);
 
-                result
-            }
+            result
         }
     }
 
@@ -740,7 +726,7 @@ where
     }
 
     fn asl<const M: u8>(&mut self) {
-        self.read_modify_write::<M>(InstructionName::Asl);
+        self.read_modify_write::<M, ASL>();
     }
 
     fn bcc(&mut self) {
@@ -865,12 +851,12 @@ where
     }
 
     fn dcp<const M: u8>(&mut self) {
-        let result = self.read_modify_write::<M>(InstructionName::Dcp);
+        let result = self.read_modify_write::<M, DCP>();
         self.compare(self.a, result);
     }
 
     fn dec<const M: u8>(&mut self) {
-        self.read_modify_write::<M>(InstructionName::Dec);
+        self.read_modify_write::<M, DEC>();
     }
 
     fn dex(&mut self) {
@@ -890,7 +876,7 @@ where
     }
 
     fn inc<const M: u8>(&mut self) {
-        self.read_modify_write::<M>(InstructionName::Inc);
+        self.read_modify_write::<M, INC>();
     }
 
     fn inx(&mut self) {
@@ -904,7 +890,7 @@ where
     }
 
     fn isb<const M: u8>(&mut self) {
-        let result = self.read_modify_write::<M>(InstructionName::Isb);
+        let result = self.read_modify_write::<M, ISB>();
         self.add(result ^ 0xff);
     }
 
@@ -961,7 +947,7 @@ where
     }
 
     fn lsr<const M: u8>(&mut self) {
-        self.read_modify_write::<M>(InstructionName::Lsr);
+        self.read_modify_write::<M, LSR>();
     }
 
     fn lxa<const M: u8>(&mut self) {
@@ -1016,20 +1002,20 @@ where
     }
 
     fn rla<const M: u8>(&mut self) {
-        let result = self.read_modify_write::<M>(InstructionName::Rla);
+        let result = self.read_modify_write::<M, RLA>();
         self.set_a(self.a & result);
     }
 
     fn rol<const M: u8>(&mut self) {
-        self.read_modify_write::<M>(InstructionName::Rol);
+        self.read_modify_write::<M, ROL>();
     }
 
     fn ror<const M: u8>(&mut self) {
-        self.read_modify_write::<M>(InstructionName::Ror);
+        self.read_modify_write::<M, ROR>();
     }
 
     fn rra<const M: u8>(&mut self) {
-        let result = self.read_modify_write::<M>(InstructionName::Rra);
+        let result = self.read_modify_write::<M, RRA>();
         self.add(result);
     }
 
@@ -1140,12 +1126,12 @@ where
     }
 
     fn slo<const M: u8>(&mut self) {
-        let result = self.read_modify_write::<M>(InstructionName::Slo);
+        let result = self.read_modify_write::<M, SLO>();
         self.set_a(self.a | result);
     }
 
     fn sre<const M: u8>(&mut self) {
-        let result = self.read_modify_write::<M>(InstructionName::Sre);
+        let result = self.read_modify_write::<M, SRE>();
         self.set_a(self.a ^ result);
     }
 
