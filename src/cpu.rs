@@ -434,7 +434,7 @@ where
     }
 
     fn peek(&mut self) -> u8 {
-        self.read_byte(STACK_BASE + self.s.wrapping_add(1) as u16)
+        self.read_byte(STACK_BASE + self.s as u16)
     }
 
     fn push(&mut self, data: u8) {
