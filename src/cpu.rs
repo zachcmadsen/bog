@@ -531,7 +531,10 @@ where
             self.pc = self.pc.wrapping_add(offset);
 
             if old_pc & 0xff00 != self.pc & 0xff00 {
-                self.read_byte(self.pc);
+                self.read_byte(
+                    (old_pc & 0xff00)
+                        | (old_pc as u8).wrapping_add(offset as u8) as u16,
+                );
             }
         }
     }
