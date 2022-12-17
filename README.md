@@ -4,7 +4,7 @@
 mode or interrupt hijacking.
 
 I originally wrote this as part of an NES emulator, but I thought it might be
-useful for future emulator projects as a standalone library.
+useful as a standalone library for future emulator projects.
 
 # Acknowledgements
 
