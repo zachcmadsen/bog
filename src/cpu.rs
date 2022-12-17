@@ -626,7 +626,7 @@ where
                 // instructions always have the extra read since they can't
                 // undo a write to an invalid address.
                 if page_cross || W {
-                    self.read_byte(effective_address);
+                    self.read_byte((high as u16) << 8 | low as u16);
                 }
 
                 effective_address
@@ -661,7 +661,7 @@ where
                 // instructions always have the extra read since they can't
                 // undo a write to an invalid address.
                 if did_cross_page || W {
-                    self.read_byte(effective_address);
+                    self.read_byte((high as u16) << 8 | low as u16);
                 }
 
                 effective_address
