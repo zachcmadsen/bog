@@ -32,7 +32,10 @@ const RRA: u8 = 9;
 const SLO: u8 = 10;
 const SRE: u8 = 11;
 
-const BRK_OPCODE: u8 = 0x00;
+const BRK: u8 = 0;
+const IRQ: u8 = 1;
+const NMI: u8 = 2;
+const RST: u8 = 3;
 
 const STACK_BASE: u16 = 0x0100;
 
@@ -57,14 +60,6 @@ impl Default for Status {
     }
 }
 
-#[derive(PartialEq)]
-enum Interrupt {
-    Brk,
-    Irq,
-    Nmi,
-    Reset,
-}
-
 /// A MOS 6502 CPU.
 pub struct Cpu<B> {
     pub a: u8,
@@ -76,7 +71,6 @@ pub struct Cpu<B> {
     pub pins: Pins,
     pub cycles: u64,
 
-    interrupt: Interrupt,
     prev_irq: bool,
     irq: bool,
     prev_nmi: bool,
@@ -92,7 +86,7 @@ where
     B: Bus,
 {
     const OPCODE_LUT: [fn(&mut Cpu<B>); 256] = [
-        Cpu::brk,
+        Cpu::brk::<BRK>,
         Cpu::ora::<INDEXED_INDIRECT>,
         Cpu::jam,
         Cpu::slo::<INDEXED_INDIRECT>,
@@ -361,7 +355,6 @@ where
             p: Status::default(),
             pins: Pins::default(),
             cycles: 0,
-            interrupt: Interrupt::Brk,
             prev_irq: false,
             irq: false,
             prev_nmi: false,
@@ -374,25 +367,24 @@ where
 
     /// Executes the next instruction.
     pub fn step(&mut self) {
-        let opcode = if self.rst || self.prev_need_nmi || self.prev_irq {
-            if self.rst {
-                self.rst = false;
-                self.interrupt = Interrupt::Reset;
+        if self.rst || self.prev_need_nmi || self.prev_irq {
+            let brk_fn = if self.rst {
                 // TODO: Reset CPU struct fields?
+                self.rst = false;
+                Cpu::brk::<RST>
             } else if self.prev_need_nmi {
                 self.need_nmi = false;
-                self.interrupt = Interrupt::Nmi
+                Cpu::brk::<NMI>
             } else {
-                self.interrupt = Interrupt::Irq
+                Cpu::brk::<IRQ>
             };
 
             self.read_byte(self.pc);
-            BRK_OPCODE
+            (brk_fn)(self);
         } else {
-            self.consume_byte()
-        };
-
-        (Cpu::OPCODE_LUT[opcode as usize])(self);
+            let opcode = self.consume_byte();
+            (Cpu::OPCODE_LUT[opcode as usize])(self);
+        }
     }
 
     fn read_byte(&mut self, address: u16) -> u8 {
@@ -763,13 +755,13 @@ where
         self.branch(!self.p.contains(Status::N));
     }
 
-    fn brk(&mut self) {
+    fn brk<const I: u8>(&mut self) {
         self.read_byte(self.pc);
-        if self.interrupt == Interrupt::Brk {
+        if I == BRK {
             self.pc += 1;
         }
 
-        if self.interrupt == Interrupt::Reset {
+        if I == RST {
             self.peek();
             self.s = self.s.wrapping_sub(1);
             self.peek();
@@ -779,26 +771,20 @@ where
         } else {
             self.push((self.pc >> 8) as u8);
             self.push(self.pc as u8);
-            let p = if self.interrupt == Interrupt::Brk {
-                self.p | Status::B
-            } else {
-                self.p
-            };
+            let p = if I == BRK { self.p | Status::B } else { self.p };
             self.push(p.bits());
         }
 
         // TODO: Implement interrupt hijacking.
         // TODO: Should NMI not set the I flag?
         self.p.insert(Status::I);
-        let vector = match self.interrupt {
-            Interrupt::Brk | Interrupt::Irq => IRQ_VECTOR,
-            Interrupt::Nmi => NMI_VECTOR,
-            Interrupt::Reset => RESET_VECTOR,
+        let vector = match I {
+            BRK | IRQ => IRQ_VECTOR,
+            NMI => NMI_VECTOR,
+            RST => RESET_VECTOR,
+            _ => unreachable!("unexpected interrupt type: {}", I),
         };
         self.pc = self.read_word(vector);
-
-        // Default to BRK interrupts.
-        self.interrupt = Interrupt::Brk;
     }
 
     fn bvc(&mut self) {
